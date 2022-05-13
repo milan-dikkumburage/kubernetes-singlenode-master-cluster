@@ -1,0 +1,49 @@
+---
+- hosts: "masters"
+  remote_user: centos
+  become: yes
+  become_method: sudo
+  become_user: root
+  gather_facts: yes
+  connection: ssh
+  tasks:
+    - name: Create kubeadm-config file
+      shell: |
+               cat <<EOF | sudo tee /home/centos/kubeadm-config.yaml
+               kind: ClusterConfiguration
+               apiVersion: kubeadm.k8s.io/v1beta3
+               kubernetesVersion: v1.24.0
+               networking:
+                 podSubnet: 172.31.0.0/16 
+               ---
+               kind: KubeletConfiguration
+               apiVersion: kubelet.config.k8s.io/v1beta1
+               cgroupDriver: systemd
+               EOF
+
+    - name: initialize the cluster
+      shell: cd /home/centos && kubeadm init --config kubeadm-config.yaml 
+      args:
+        chdir: $HOME
+        creates: cluster_initialized.txt
+
+    - name: export kubeconfig
+      shell: |
+              mkdir -p $HOME/.kube
+              sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+              sudo chown $(id -u):$(id -g) $HOME/.kube/config
+              export KUBECONFIG=/etc/kubernetes/admin.conf
+              
+    - name: install Pod network
+      shell: |
+              kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')" >> pod_network_setup.txt
+      args:
+        chdir: $HOME
+        creates: pod_network_setup.txt
+
+    - name: Control plane enable
+      shell: |
+              kubectl taint nodes --all node-role.kubernetes.io/master-
+
+
+        
